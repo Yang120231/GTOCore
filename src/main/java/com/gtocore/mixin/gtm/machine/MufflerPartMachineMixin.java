@@ -1,6 +1,7 @@
 package com.gtocore.mixin.gtm.machine;
 
 import com.gtocore.common.item.ItemMap;
+import com.gtocore.config.GTOConfig;
 
 import com.gtolib.api.GTOValues;
 import com.gtolib.api.machine.feature.IAirScrubberInteractor;
@@ -10,8 +11,8 @@ import com.gtolib.api.machine.feature.multiblock.IDroneControlCenterMachine;
 import com.gtolib.api.misc.Drone;
 import com.gtolib.utils.MachineUtils;
 
-import com.gregtechceu.gtceu.GTCEu;
 import com.gregtechceu.gtceu.api.GTValues;
+import com.gregtechceu.gtceu.GTCEu;
 import com.gregtechceu.gtceu.api.blockentity.MetaMachineBlockEntity;
 import com.gregtechceu.gtceu.api.gui.GuiTextures;
 import com.gregtechceu.gtceu.api.gui.UITemplate;
@@ -133,7 +134,8 @@ public abstract class MufflerPartMachineMixin extends WorkableTieredPartMachine 
     @Override
     public void onLoad() {
         super.onLoad();
-        gto$chanceOfNotProduceAsh = Math.min(Math.max(gto$chanceOfNotProduceAsh, 0), getTier() * 10);
+        int maxChance = getTier() >= GTValues.UEV ? 100 : Math.min(100, getTier() * 10);
+        gto$chanceOfNotProduceAsh = Math.min(Math.max(gto$chanceOfNotProduceAsh, 0), maxChance);
     }
 
     @Override
@@ -155,6 +157,7 @@ public abstract class MufflerPartMachineMixin extends WorkableTieredPartMachine 
 
     @Override
     public boolean isFrontFaceFree() {
+        if (gtocore$ashHandlingDisabled()) return true;
         var time = getOffsetTimer();
         if (time > gtocore$refresh) {
             gtolib$lastFrontFaceFree = true;
@@ -172,6 +175,7 @@ public abstract class MufflerPartMachineMixin extends WorkableTieredPartMachine 
 
     @Unique
     public boolean gtolib$checkAshFull() {
+        if (gtocore$ashHandlingDisabled()) return false;
         var item = inventory.getStackInSlot(inventory.getSlots() - 1);
         var count = item.getCount();
         if (count == 0) return false;
@@ -180,11 +184,14 @@ public abstract class MufflerPartMachineMixin extends WorkableTieredPartMachine 
 
     @Override
     public int gtolib$getRecoveryChance() {
-        return gto$chanceOfNotProduceAsh;
+        if (gtocore$ashHandlingDisabled()) return 100;
+        if (getTier() >= GTValues.UEV) return 100;
+        return Math.min(100, gto$chanceOfNotProduceAsh);
     }
 
     @Override
     public void recoverItemsTable(ItemStack recoveryItems) {
+        if (gtocore$shouldSkipAsh()) return;
         AirScrubberMachine machine = getAirScrubberMachine();
         if (machine != null && GTValues.RNG.nextInt(machine.getTier() << 1 + 1) > 1) {
             MachineUtils.outputItem(machine, recoveryItems);
@@ -239,5 +246,31 @@ public abstract class MufflerPartMachineMixin extends WorkableTieredPartMachine 
             e.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 80, 2));
             e.addEffect(new MobEffectInstance(MobEffects.POISON, 40, 1));
         });
+    }
+
+    @Unique
+    private boolean gtocore$ashHandlingDisabled() {
+        return !com.gtolib.GTOCore.isExpert() && GTOConfig.INSTANCE.disableMufflerPart;
+    }
+
+    @Unique
+    private boolean gtocore$shouldSkipAsh() {
+        int chance = Math.max(0, Math.min(gtolib$getRecoveryChance(), 100));
+        if (chance >= 100) {
+            gtocore$logAshSkip("full recovery chance");
+            return true;
+        }
+        if (chance > 0 && GTValues.RNG.nextInt(100) < chance) {
+            gtocore$logAshSkip("rolled within recovery chance");
+            return true;
+        }
+        return false;
+    }
+
+    @Unique
+    private void gtocore$logAshSkip(String reason) {
+        if (GTCEu.isDev()) {
+            com.gtolib.GTOCore.LOGGER.debug("[Muffler] Skipped ash generation: {}", reason);
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.gtocore.common.machine.multiblock.part.ae;
 
 import com.gtocore.data.CraftingComponents;
+import com.gtocore.config.GTOConfig;
 
 import com.gtolib.GTOCore;
 import com.gtolib.api.annotation.Scanned;
@@ -13,6 +14,7 @@ import com.gtolib.api.misc.AsyncTask;
 import com.gtolib.api.misc.IAsyncTaskHolder;
 
 import com.gregtechceu.gtceu.api.GTValues;
+import com.gregtechceu.gtceu.GTCEu;
 import com.gregtechceu.gtceu.api.blockentity.MetaMachineBlockEntity;
 import com.gregtechceu.gtceu.api.capability.recipe.IO;
 import com.gregtechceu.gtceu.api.gui.GuiTextures;
@@ -117,6 +119,10 @@ public class MEMufflerHatchPartMachine extends MEPartMachine implements IGTOMuff
         } else {
             recoveryChance = muffler_tier * 10;
         }
+        recoveryChance = Math.min(recoveryChance, 100);
+        if (gtocore$ashHandlingDisabled()) {
+            recoveryChance = 100;
+        }
     }
 
     @Override
@@ -205,22 +211,50 @@ public class MEMufflerHatchPartMachine extends MEPartMachine implements IGTOMuff
     @Override
     public void recoverItemsTable(ItemStack recoveryItems) {
         if (!workingEnabled) return;
+        if (gtocore$shouldSkipAsh()) return;
         handler.insertInternal(recoveryItems, recoveryItems.getCount());
     }
 
     @Override
     public boolean isFrontFaceFree() {
-        return recoveryChance != 0;
+        return gtocore$ashHandlingDisabled() || recoveryChance != 0;
     }
 
     @Override
     public int gtolib$getRecoveryChance() {
-        return recoveryChance;
+        return gtocore$ashHandlingDisabled() ? 100 : recoveryChance;
     }
 
     @Override
     public int getTier() {
         return Math.max(tier, muffler_tier);
+    }
+
+    private boolean gtocore$ashHandlingDisabled() {
+        return !GTOCore.isExpert() && GTOConfig.INSTANCE.disableMufflerPart;
+    }
+
+    private boolean gtocore$shouldSkipAsh() {
+        if (gtocore$ashHandlingDisabled()) {
+            gtocore$logAshSkip("config disabled");
+            return true;
+        }
+        int chance = Math.max(0, Math.min(gtolib$getRecoveryChance(), 100));
+        if (chance >= 100) {
+            gtocore$logAshSkip("full recovery chance");
+            return true;
+        }
+        if (chance > 0 && GTValues.RNG.nextInt(100) < chance) {
+            gtocore$logAshSkip("rolled within recovery chance");
+            return true;
+        }
+        return false;
+    }
+
+    private void gtocore$logAshSkip(String reason) {
+        if (GTCEu.isDev()) {
+            GTOCore.LOGGER.debug("[ME Muffler] Skipped ash generation: {}", reason);
+        }
     }
 
     static class Wrapper {
